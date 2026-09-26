@@ -1,668 +1,711 @@
---[[ Pengu UI v0.3.0 — compact Cowin tabs + RusherHack-inspired floating panels ]]
-local Players=game:GetService("Players")
-local UIS=game:GetService("UserInputService")
-local RunService=game:GetService("RunService")
-local CoreGui=game:GetService("CoreGui")
-local TeleportService=game:GetService("TeleportService")
+--[[ Pengu UI v0.5.0 — Resonance-style sidebar + pages. No intro. ]]
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
 
-local LP=Players.LocalPlayer
-local UI={
- Gui=nil,
- Connections={},
- AccentBindings={},
- Windows={},
- ActiveTab="MODULES",
+local LP = Players.LocalPlayer
+local UI = {
+	Gui = nil,
+	Connections = {},
+	AccentBindings = {},
+	ActivePage = "Combat",
+	Search = "",
 }
-local Config,TargetManager,Combat,Defense,PlayerController,Pengu
 
-local BG=Color3.fromRGB(11,11,14)
-local PANEL=Color3.fromRGB(17,17,21)
-local HEADER=Color3.fromRGB(20,20,25)
-local ROW=Color3.fromRGB(25,25,30)
-local ROW_HOVER=Color3.fromRGB(30,30,36)
-local TEXT=Color3.fromRGB(225,225,232)
-local MUTED=Color3.fromRGB(125,125,140)
-local OFF=Color3.fromRGB(64,64,74)
-local PURPLE=Color3.fromRGB(119,0,255)
+local Config, TargetManager, Combat, Defense, PlayerController, Pengu
 
-local function bind(c)table.insert(UI.Connections,c);return c end
-local function corner(o,r)local c=Instance.new("UICorner");c.CornerRadius=UDim.new(0,r or 4);c.Parent=o;return c end
-local function outline(o,col,thick)local s=Instance.new("UIStroke");s.Color=col or Color3.fromRGB(46,43,55);s.Thickness=thick or 1;s.Parent=o;return s end
-local function currentAccent()
- if Config and Config.RainbowUI then
-  local speed=Config.RainbowSpeed or .12
-  return Color3.fromHSV((time()*speed)%1,.88,1)
- end
- return (Config and Config.Accent) or PURPLE
-end
-local function accentBind(obj,prop,condition,off)
- table.insert(UI.AccentBindings,{obj=obj,prop=prop,condition=condition,off=off})
- obj[prop]=(not condition or condition()) and currentAccent() or (off or obj[prop])
-end
-local function refreshAccents()
- local col=currentAccent()
- for i=#UI.AccentBindings,1,-1 do
-  local a=UI.AccentBindings[i]
-  if not a.obj or not a.obj.Parent then
-   table.remove(UI.AccentBindings,i)
-  else
-   local active=not a.condition or a.condition()
-   a.obj[a.prop]=active and col or (a.off or a.obj[a.prop])
-  end
- end
+local BG = Color3.fromRGB(12, 12, 16)
+local SIDE = Color3.fromRGB(16, 16, 22)
+local CARD = Color3.fromRGB(22, 22, 30)
+local HEADER = Color3.fromRGB(28, 28, 38)
+local MUTED = Color3.fromRGB(140, 140, 155)
+local TEXT = Color3.fromRGB(235, 235, 245)
+local STROKE = Color3.fromRGB(40, 40, 55)
+
+local function accent()
+	return (Config and Config.Accent) or Color3.fromRGB(119, 0, 255)
 end
 
-local function hover(btn)
- bind(btn.MouseEnter:Connect(function()if btn.BackgroundColor3==ROW then btn.BackgroundColor3=ROW_HOVER end end))
- bind(btn.MouseLeave:Connect(function()if btn.BackgroundColor3==ROW_HOVER then btn.BackgroundColor3=ROW end end))
+local function panelT()
+	local t = (Config and Config.UITransparency) or 0.08
+	if t < 0 then t = 0 end
+	if t > 0.75 then t = 0.75 end
+	return t
 end
 
-local function drag(frame,handle)
- local down=false
- local start=nil
- local original=nil
- bind(handle.InputBegan:Connect(function(i)
-  if i.UserInputType==Enum.UserInputType.MouseButton1 then
-   down=true;start=i.Position;original=frame.Position
-  end
- end))
- bind(UIS.InputEnded:Connect(function(i)if i.UserInputType==Enum.UserInputType.MouseButton1 then down=false end end))
- bind(UIS.InputChanged:Connect(function(i)
-  if down and i.UserInputType==Enum.UserInputType.MouseMovement then
-   local d=i.Position-start
-   frame.Position=UDim2.new(original.X.Scale,original.X.Offset+d.X,original.Y.Scale,original.Y.Offset+d.Y)
-  end
- end))
+local function bindAccent(inst, prop)
+	table.insert(UI.AccentBindings, {inst = inst, prop = prop})
+	inst[prop] = accent()
 end
 
-local function label(parent,text,height,color,size,bold)
- local l=Instance.new("TextLabel")
- l.Size=UDim2.new(1,0,0,height or 20)
- l.BackgroundTransparency=1
- l.Text=text
- l.TextColor3=color or TEXT
- l.Font=bold and Enum.Font.Gotham or Enum.Font.Gotham
- l.TextSize=size or 12
- l.TextXAlignment=Enum.TextXAlignment.Left
- l.Parent=parent
- return l
+local function applyAccent()
+	local a = accent()
+	for _, b in ipairs(UI.AccentBindings) do
+		pcall(function() b.inst[b.prop] = a end)
+	end
 end
 
-local function button(parent,name,cb)
- local b=Instance.new("TextButton")
- b.Size=UDim2.new(1,0,0,27)
- b.BackgroundColor3=ROW
- b.BorderSizePixel=0
- b.Text=name
- b.TextColor3=TEXT
- b.Font=Enum.Font.Gotham
- b.TextSize=12
- b.AutoButtonColor=false
- b.Parent=parent
- hover(b)
- bind(b.MouseButton1Click:Connect(function()if cb then cb()end end))
- return b
+local function corner(p, r)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, r or 8)
+	c.Parent = p
 end
 
-local function toggle(parent,name,key,cb)
- local row=Instance.new("TextButton")
- row.Size=UDim2.new(1,0,0,27)
- row.BackgroundColor3=ROW
- row.BorderSizePixel=0
- row.Text=""
- row.AutoButtonColor=false
- row.Parent=parent
- hover(row)
-
- local left=Instance.new("Frame")
- left.Size=UDim2.new(0,2,1,0)
- left.BorderSizePixel=0
- left.Parent=row
- accentBind(left,"BackgroundColor3",function()return Config[key] end,ROW)
-
- local txt=Instance.new("TextLabel")
- txt.Size=UDim2.new(1,-38,1,0)
- txt.Position=UDim2.new(0,8,0,0)
- txt.BackgroundTransparency=1
- txt.Text=name
- txt.TextColor3=TEXT
- txt.Font=Enum.Font.Gotham
- txt.TextSize=12
- txt.TextXAlignment=Enum.TextXAlignment.Left
- txt.Parent=row
- accentBind(txt,"TextColor3",function()return Config[key] end,TEXT)
-
- local sw=Instance.new("Frame")
- sw.Size=UDim2.new(0,20,0,10)
- sw.Position=UDim2.new(1,-28,.5,-5)
- sw.BackgroundColor3=OFF
- sw.BorderSizePixel=0
- sw.Parent=row
- corner(sw,5)
-
- local knob=Instance.new("Frame")
- knob.Size=UDim2.new(0,8,0,8)
- knob.Position=Config[key] and UDim2.new(1,-9,.5,-4) or UDim2.new(0,1,.5,-4)
- knob.BackgroundColor3=Color3.fromRGB(235,235,240)
- knob.BorderSizePixel=0
- knob.Parent=sw
- corner(knob,4)
- accentBind(sw,"BackgroundColor3",function()return Config[key] end,OFF)
-
- bind(row.MouseButton1Click:Connect(function()
-  Config[key]=not Config[key]
-  knob.Position=Config[key] and UDim2.new(1,-9,.5,-4) or UDim2.new(0,1,.5,-4)
-  refreshAccents()
-  if cb then cb(Config[key])end
- end))
- return row
+local function stroke(p, t)
+	local s = Instance.new("UIStroke")
+	s.Color = STROKE
+	s.Thickness = t or 1
+	s.Transparency = 0.35
+	s.Parent = p
+	return s
 end
 
-local function slider(parent,name,key,min,max,cb)
- local f=Instance.new("Frame")
- f.Size=UDim2.new(1,0,0,39)
- f.BackgroundColor3=ROW
- f.BorderSizePixel=0
- f.Parent=parent
-
- local n=Instance.new("TextLabel")
- n.Size=UDim2.new(.67,-8,0,19)
- n.Position=UDim2.new(0,8,0,2)
- n.BackgroundTransparency=1
- n.Text=name
- n.TextColor3=TEXT
- n.Font=Enum.Font.Gotham
- n.TextSize=11
- n.TextXAlignment=Enum.TextXAlignment.Left
- n.Parent=f
-
- local val=Instance.new("TextLabel")
- val.Size=UDim2.new(.33,-8,0,19)
- val.Position=UDim2.new(.67,0,0,2)
- val.BackgroundTransparency=1
- val.Text=tostring(Config[key])
- val.Font=Enum.Font.Gotham
- val.TextSize=11
- val.TextXAlignment=Enum.TextXAlignment.Right
- val.Parent=f
- accentBind(val,"TextColor3")
-
- local bar=Instance.new("Frame")
- bar.Size=UDim2.new(1,-16,0,3)
- bar.Position=UDim2.new(0,8,0,29)
- bar.BackgroundColor3=Color3.fromRGB(47,47,57)
- bar.BorderSizePixel=0
- bar.Parent=f
-
- local fill=Instance.new("Frame")
- fill.Size=UDim2.new(math.clamp(((Config[key] or min)-min)/(max-min),0,1),0,1,0)
- fill.BackgroundColor3=currentAccent()
- fill.BorderSizePixel=0
- fill.Parent=bar
- accentBind(fill,"BackgroundColor3")
-
- local hit=Instance.new("TextButton")
- hit.Size=UDim2.new(1,0,0,14)
- hit.Position=UDim2.new(0,0,.5,-7)
- hit.BackgroundTransparency=1
- hit.Text=""
- hit.Parent=bar
-
- local down=false
- local function apply(x)
-  local a=math.clamp((x-bar.AbsolutePosition.X)/math.max(bar.AbsoluteSize.X,1),0,1)
-  local num=min+(max-min)*a
-  if max-min<=2 then num=math.floor(num*100+.5)/100 else num=math.floor(num+.5) end
-  Config[key]=num
-  val.Text=tostring(num)
-  fill.Size=UDim2.new(a,0,1,0)
-  if cb then cb(num)end
- end
- bind(hit.InputBegan:Connect(function(i)if i.UserInputType==Enum.UserInputType.MouseButton1 then down=true;apply(i.Position.X)end end))
- bind(UIS.InputEnded:Connect(function(i)if i.UserInputType==Enum.UserInputType.MouseButton1 then down=false end end))
- bind(UIS.InputChanged:Connect(function(i)if down and i.UserInputType==Enum.UserInputType.MouseMovement then apply(i.Position.X)end end))
- return f
+local function pad(p, l, t, r, b)
+	local u = Instance.new("UIPadding")
+	u.PaddingLeft = UDim.new(0, l or 8)
+	u.PaddingTop = UDim.new(0, t or 8)
+	u.PaddingRight = UDim.new(0, r or 8)
+	u.PaddingBottom = UDim.new(0, b or 8)
+	u.Parent = p
 end
 
-local function module(parent,name,key,settingsBuilder,cb)
- local wrap=Instance.new("Frame")
- wrap.Size=UDim2.new(1,0,0,27)
- wrap.AutomaticSize=Enum.AutomaticSize.Y
- wrap.BackgroundTransparency=1
- wrap.LayoutOrder=10
- wrap.Parent=parent
-
- local stack=Instance.new("UIListLayout")
- stack.Padding=UDim.new(0,1)
- stack.SortOrder=Enum.SortOrder.LayoutOrder
- stack.Parent=wrap
-
- local row=Instance.new("TextButton")
- row.Size=UDim2.new(1,0,0,27)
- row.LayoutOrder=0
- row.BackgroundColor3=ROW
- row.BorderSizePixel=0
- row.Text=""
- row.AutoButtonColor=false
- row.Parent=wrap
- hover(row)
-
- local strip=Instance.new("Frame")
- strip.Size=UDim2.new(0,2,1,0)
- strip.BorderSizePixel=0
- strip.Parent=row
- accentBind(strip,"BackgroundColor3",function()return Config[key] end,ROW)
-
- local txt=Instance.new("TextLabel")
- txt.Size=UDim2.new(1,-45,1,0)
- txt.Position=UDim2.new(0,8,0,0)
- txt.BackgroundTransparency=1
- txt.Text=name
- txt.TextColor3=TEXT
- txt.Font=Enum.Font.Gotham
- txt.TextSize=12
- txt.TextXAlignment=Enum.TextXAlignment.Left
- txt.Parent=row
- accentBind(txt,"TextColor3",function()return Config[key] end,TEXT)
-
- local arrow=Instance.new("TextLabel")
- arrow.Size=UDim2.new(0,20,1,0)
- arrow.Position=UDim2.new(1,-27,0,0)
- arrow.BackgroundTransparency=1
- arrow.Text=settingsBuilder and ">" or "•"
- arrow.TextColor3=MUTED
- arrow.Font=Enum.Font.Gotham
- arrow.TextSize=12
- arrow.Parent=row
-
- local settings=nil
- if settingsBuilder then
-  settings=Instance.new("Frame")
-  settings.Size=UDim2.new(1,0,0,0)
-  settings.AutomaticSize=Enum.AutomaticSize.Y
-  settings.LayoutOrder=1
-  settings.BackgroundTransparency=1
-  settings.Visible=false
-  settings.Parent=wrap
-  local list=Instance.new("UIListLayout")
-  list.Padding=UDim.new(0,1)
-  list.SortOrder=Enum.SortOrder.LayoutOrder
-  list.Parent=settings
-  settingsBuilder(settings)
- end
-
- bind(row.MouseButton1Click:Connect(function()
-  Config[key]=not Config[key]
-  refreshAccents()
-  if cb then cb(Config[key])end
- end))
- bind(row.MouseButton2Click:Connect(function()
-  if settings then
-   settings.Visible=not settings.Visible
-   arrow.Text=settings.Visible and "v" or ">"
-  end
- end))
- return wrap
+local function mk(class, props, parent)
+	local o = Instance.new(class)
+	for k, v in pairs(props or {}) do
+		o[k] = v
+	end
+	if parent then o.Parent = parent end
+	return o
 end
 
-local function panel(parent,title,x,builder)
- local f=Instance.new("Frame")
- f.Size=UDim2.new(0,225,0,34)
- f.Position=UDim2.new(0,x,0,10)
- f.AutomaticSize=Enum.AutomaticSize.Y
- f.BackgroundColor3=BG
- f.BackgroundTransparency=.03
- f.BorderSizePixel=0
- f.Parent=parent
- corner(f,5)
- outline(f,Color3.fromRGB(48,45,57))
-
- local layout=Instance.new("UIListLayout")
- layout.Padding=UDim.new(0,1)
- layout.SortOrder=Enum.SortOrder.LayoutOrder
- layout.Parent=f
-
- local head=Instance.new("TextButton")
- head.Size=UDim2.new(1,0,0,31)
- head.LayoutOrder=0
- head.BackgroundColor3=HEADER
- head.BorderSizePixel=0
- head.Text=""
- head.AutoButtonColor=false
- head.Parent=f
-
- local accentLine=Instance.new("Frame")
- accentLine.Size=UDim2.new(1,0,0,2)
- accentLine.Position=UDim2.new(0,0,0,0)
- accentLine.BorderSizePixel=0
- accentLine.Parent=head
- accentBind(accentLine,"BackgroundColor3")
-
- local titleLabel=Instance.new("TextLabel")
- titleLabel.Size=UDim2.new(1,-36,1,0)
- titleLabel.Position=UDim2.new(0,9,0,1)
- titleLabel.BackgroundTransparency=1
- titleLabel.Text=title:upper()
- titleLabel.TextColor3=TEXT
- titleLabel.Font=Enum.Font.Gotham
- titleLabel.TextSize=13
- titleLabel.TextXAlignment=Enum.TextXAlignment.Left
- titleLabel.Parent=head
-
- local collapse=Instance.new("TextLabel")
- collapse.Size=UDim2.new(0,20,1,0)
- collapse.Position=UDim2.new(1,-27,0,0)
- collapse.BackgroundTransparency=1
- collapse.Text="−"
- collapse.TextColor3=MUTED
- collapse.Font=Enum.Font.Gotham
- collapse.TextSize=13
- collapse.Parent=head
-
- local body=Instance.new("Frame")
- body.Size=UDim2.new(1,0,0,0)
- body.AutomaticSize=Enum.AutomaticSize.Y
- body.LayoutOrder=1
- body.BackgroundTransparency=1
- body.Parent=f
- local bodyList=Instance.new("UIListLayout")
- bodyList.Padding=UDim.new(0,1)
- bodyList.SortOrder=Enum.SortOrder.LayoutOrder
- bodyList.Parent=body
-
- bind(head.MouseButton2Click:Connect(function()
-  body.Visible=not body.Visible
-  collapse.Text=body.Visible and "−" or "+"
- end))
- drag(f,head)
- builder(body)
- table.insert(UI.Windows,f)
- return f
+local function notify(msg)
+	if Pengu and Pengu.Notify then
+		Pengu.Notify(msg)
+	end
 end
 
-local function localRoot()
- return LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-end
-local function tpTo(plr)
- if not plr or not plr.Character then return end
- local theirs=plr.Character:FindFirstChild("HumanoidRootPart")
- local mine=localRoot()
- if theirs and mine then mine.CFrame=theirs.CFrame*CFrame.new(0,0,4) end
-end
-
-local function buildModules(page)
- panel(page,"Combat",14,function(p)
-  module(p,"Super Strength","SuperStrength",function(s)
-   slider(s,"Strength","StrengthValue",50,800)
-   label(s,"  RMB throw only while holding",18,MUTED,10)
-   toggle(s,"Fling Up","FlingUp")
-   toggle(s,"Slam","Slam")
-   toggle(s,"Void Fling","VoidFling")
-   toggle(s,"Spin Fling","SpinFling")
-  end,function(v)if Combat then if v then Combat.EnableSuperStrength()else Combat.DisableSuperStrength()end end end)
-  module(p,"Fling Aura","FlingAura",function(s)slider(s,"Range","AuraRange",8,80);slider(s,"Cooldown","AuraCD",.1,2)end)
-  module(p,"Ragdoll Aura","RagdollAura")
-  module(p,"Sit Aura","SitAura")
-  module(p,"Spin Aura","SpinAura")
-  module(p,"Bring Aura","BringAura")
-  module(p,"Void Aura","VoidAura")
-  module(p,"Grab Reach","GrabReach",function(s)slider(s,"Reach","MaxGrabReach",20,50)end)
- end)
-
- panel(page,"Player",249,function(p)
-  module(p,"Third Person","ThirdPerson",function(s)
-   slider(s,"Start Zoom","TPDistance",2,20)
-   slider(s,"Max Wheel Zoom","TPMaxZoom",8,60)
-   slider(s,"FOV","FOV",50,120)
-   button(s,"Restore Roblox Camera",function()if PlayerController then PlayerController.RestoreCamera()end end)
-  end,function(v)if PlayerController then PlayerController.SetThirdPerson(v)end end)
-  module(p,"Speed","SpeedEnabled",function(s)slider(s,"Walk Speed","WalkSpeed",16,100)end)
-  module(p,"Jump Boost","JumpEnabled",function(s)slider(s,"Jump Power","JumpPower",50,150)end)
-  module(p,"Flight","Flight",function(s)slider(s,"Flight Speed","FlightSpeed",10,120);label(s,"  WASD + Space / Ctrl",20,MUTED,10)end)
-  module(p,"Noclip","Noclip")
-  module(p,"Infinite Jump","InfJump")
-  module(p,"Character Spin","CharSpin",function(s)slider(s,"Spin Speed","SpinSpeed",2,60)end)
- end)
-
- panel(page,"Defense",484,function(p)
-  module(p,"Anti Grab","AntiGrab")
-  module(p,"Gucci Anti-Grab","AntiGucci",function(s)
-   slider(s,"Check Interval","AntiGucciInterval",.05,.4)
-   toggle(s,"Emergency Only","AntiGucciEmergencyOnly")
-  end)
-  module(p,"Anti Blobman","AntiBlobman")
-  module(p,"Anti Fling","AntiFling")
-  module(p,"Anti Ragdoll","AntiRagdoll")
-  module(p,"Instant Get Up","InstantGetUp")
-  module(p,"Anti Sit","AntiSit")
-  module(p,"Anti Void","AntiVoid")
-  module(p,"Anti Lag","AntiLag")
-  module(p,"Auto Anti-Lag","AutoAntiLag")
- end)
-
- panel(page,"World / Misc",719,function(p)
-  module(p,"Fullbright","Fullbright")
-  module(p,"No Fog","NoFog")
-  module(p,"No Shadows","NoShadows")
-  module(p,"Custom Time","CustomTime",function(s)slider(s,"Clock Time","ClockTime",0,24)end)
-  module(p,"Noclip Barrier","NoclipBarrier")
-  module(p,"Anti Invis","AntiInvis")
-  button(p,"Respawn",function()local h=LP.Character and LP.Character:FindFirstChildOfClass("Humanoid");if h then h.Health=0 end end)
-  button(p,"Rejoin Server",function()pcall(function()TeleportService:Teleport(game.PlaceId,LP)end)end)
- end)
+-- ---------- widgets ----------
+local function sectionCard(parent, title)
+	local card = mk("Frame", {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundColor3 = CARD,
+		BackgroundTransparency = panelT(),
+		BorderSizePixel = 0,
+	}, parent)
+	corner(card, 10)
+	stroke(card, 1)
+	local lay = mk("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 6),
+	}, card)
+	pad(card, 12, 10, 12, 12)
+	local head = mk("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 22),
+		BackgroundTransparency = 1,
+		Text = title,
+		Font = Enum.Font.GothamBold,
+		TextSize = 13,
+		TextColor3 = TEXT,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = 0,
+	}, card)
+	bindAccent(head, "TextColor3")
+	return card
 end
 
-local function buildTargets(page)
- panel(page,"Targeting",14,function(p)
-  toggle(p,"Nearest Target","NearestTarget")
-  toggle(p,"Target Lock","TargetLock")
-  slider(p,"Distance Limit","DistLimit",25,500)
-  button(p,"Select Nearest",function()if TargetManager then TargetManager.SetTarget(TargetManager.GetNearest())end end)
-  button(p,"Teleport To Target",function()if TargetManager then tpTo(TargetManager.GetTarget())end end)
-  button(p,"Teleport To Nearest",function()if TargetManager then tpTo(TargetManager.GetNearest())end end)
-  button(p,"Clear Target",function()if TargetManager then TargetManager.ClearTarget()end end)
- end)
- panel(page,"Blobman",249,function(p)
-  toggle(p,"Blob Loop","BlobLoop")
-  toggle(p,"Blob Grab All","BlobGrabAll")
-  toggle(p,"Anti Blobman","AntiBlobman")
-  label(p,"  Net Owner Spam: unsupported",22,MUTED,10)
- end)
+local function toggleRow(card, label, key, onChange)
+	local row = mk("Frame", {
+		Size = UDim2.new(1, 0, 0, 28),
+		BackgroundTransparency = 1,
+		LayoutOrder = #card:GetChildren() + 1,
+	}, card)
+	mk("TextLabel", {
+		Size = UDim2.new(1, -52, 1, 0),
+		BackgroundTransparency = 1,
+		Text = label,
+		Font = Enum.Font.Gotham,
+		TextSize = 12,
+		TextColor3 = TEXT,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, row)
+	local btn = mk("TextButton", {
+		Size = UDim2.new(0, 42, 0, 22),
+		Position = UDim2.new(1, -42, 0.5, -11),
+		BackgroundColor3 = Color3.fromRGB(50, 50, 60),
+		Text = "",
+		BorderSizePixel = 0,
+		AutoButtonColor = false,
+	}, row)
+	corner(btn, 11)
+	local knob = mk("Frame", {
+		Size = UDim2.new(0, 18, 0, 18),
+		Position = UDim2.new(0, 2, 0.5, -9),
+		BackgroundColor3 = Color3.fromRGB(220, 220, 230),
+		BorderSizePixel = 0,
+	}, btn)
+	corner(knob, 9)
+	local function paint()
+		local on = Config and Config[key]
+		btn.BackgroundColor3 = on and accent() or Color3.fromRGB(50, 50, 60)
+		knob.Position = on and UDim2.new(1, -20, 0.5, -9) or UDim2.new(0, 2, 0.5, -9)
+	end
+	paint()
+	btn.MouseButton1Click:Connect(function()
+		if not Config then return end
+		Config[key] = not Config[key]
+		paint()
+		if onChange then pcall(onChange, Config[key]) end
+	end)
+	return row
 end
 
-local function buildVisuals(page)
- panel(page,"Player ESP",14,function(p)
-  toggle(p,"Player ESP","PlayerESP")
-  toggle(p,"Distance ESP","DistESP")
-  toggle(p,"Health ESP","HealthESP")
-  toggle(p,"Target ESP","TargetESP")
-  toggle(p,"Rainbow ESP","Rainbow")
-  slider(p,"ESP Distance","ESPMaxDist",100,1000)
- end)
- panel(page,"Camera",249,function(p)
-  slider(p,"FOV","FOV",50,120)
-  toggle(p,"Third Person","ThirdPerson",function(v)if PlayerController then PlayerController.SetThirdPerson(v)end end)
-  slider(p,"Max Wheel Zoom","TPMaxZoom",8,60)
-  label(p,"  Third Person uses Roblox's native",18,MUTED,10)
-  label(p,"  scroll-wheel camera now.",18,MUTED,10)
- end)
- panel(page,"World",484,function(p)
-  toggle(p,"Fullbright","Fullbright")
-  toggle(p,"No Fog","NoFog")
-  toggle(p,"No Shadows","NoShadows")
-  toggle(p,"Custom Time","CustomTime")
-  slider(p,"Clock Time","ClockTime",0,24)
- end)
+local function sliderRow(card, label, key, minV, maxV, onChange)
+	local row = mk("Frame", {
+		Size = UDim2.new(1, 0, 0, 44),
+		BackgroundTransparency = 1,
+		LayoutOrder = #card:GetChildren() + 1,
+	}, card)
+	local top = mk("Frame", {Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1}, row)
+	mk("TextLabel", {
+		Size = UDim2.new(0.7, 0, 1, 0),
+		BackgroundTransparency = 1,
+		Text = label,
+		Font = Enum.Font.Gotham,
+		TextSize = 12,
+		TextColor3 = TEXT,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, top)
+	local valLab = mk("TextLabel", {
+		Size = UDim2.new(0.3, 0, 1, 0),
+		Position = UDim2.new(0.7, 0, 0, 0),
+		BackgroundTransparency = 1,
+		Text = tostring(Config and Config[key] or minV),
+		Font = Enum.Font.GothamMedium,
+		TextSize = 12,
+		TextColor3 = MUTED,
+		TextXAlignment = Enum.TextXAlignment.Right,
+	}, top)
+	local bar = mk("Frame", {
+		Size = UDim2.new(1, 0, 0, 8),
+		Position = UDim2.new(0, 0, 0, 28),
+		BackgroundColor3 = Color3.fromRGB(40, 40, 52),
+		BorderSizePixel = 0,
+	}, row)
+	corner(bar, 4)
+	local fill = mk("Frame", {
+		Size = UDim2.new(0, 0, 1, 0),
+		BackgroundColor3 = accent(),
+		BorderSizePixel = 0,
+	}, bar)
+	corner(fill, 4)
+	bindAccent(fill, "BackgroundColor3")
+	local function setFromX(x)
+		local rel = math.clamp(x / bar.AbsoluteSize.X, 0, 1)
+		local v = minV + (maxV - minV) * rel
+		if maxV - minV > 5 then v = math.floor(v + 0.5) else v = math.floor(v * 100 + 0.5) / 100 end
+		if Config then Config[key] = v end
+		valLab.Text = tostring(v)
+		fill.Size = UDim2.new(rel, 0, 1, 0)
+		if onChange then pcall(onChange, v) end
+	end
+	local dragging = false
+	bar.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = true
+			setFromX(i.Position.X - bar.AbsolutePosition.X)
+		end
+	end)
+	table.insert(UI.Connections, UIS.InputEnded:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+	end))
+	table.insert(UI.Connections, UIS.InputChanged:Connect(function(i)
+		if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+			setFromX(i.Position.X - bar.AbsolutePosition.X)
+		end
+	end))
+	task.defer(function()
+		local cur = Config and Config[key] or minV
+		local rel = (cur - minV) / math.max(maxV - minV, 1e-6)
+		fill.Size = UDim2.new(math.clamp(rel, 0, 1), 0, 1, 0)
+		valLab.Text = tostring(cur)
+	end)
+	return row
 end
 
-local function buildWhitelist(page)
- panel(page,"Whitelisted",14,function(p)
-  toggle(p,"Whitelist Enabled","WhitelistEnabled")
-  toggle(p,"Auto Whitelist Friends","AutoWLFriends")
-  local info=Instance.new("TextLabel")
-  info.Size=UDim2.new(1,0,0,115)
-  info.BackgroundColor3=ROW
-  info.BorderSizePixel=0
-  info.Text="  Whitelisted players are ignored by\n  targeting/combat where supported.\n\n  Auto Whitelist Friends uses your\n  Roblox friends list."
-  info.TextColor3=MUTED
-  info.Font=Enum.Font.Gotham
-  info.TextSize=11
-  info.TextXAlignment=Enum.TextXAlignment.Left
-  info.TextYAlignment=Enum.TextYAlignment.Top
-  info.Parent=p
- end)
+local function buttonRow(card, label, fn)
+	local b = mk("TextButton", {
+		Size = UDim2.new(1, 0, 0, 30),
+		BackgroundColor3 = HEADER,
+		Text = label,
+		Font = Enum.Font.GothamMedium,
+		TextSize = 12,
+		TextColor3 = TEXT,
+		BorderSizePixel = 0,
+		AutoButtonColor = true,
+		LayoutOrder = #card:GetChildren() + 1,
+	}, card)
+	corner(b, 6)
+	stroke(b, 1)
+	b.MouseButton1Click:Connect(function()
+		pcall(fn)
+	end)
+	return b
 end
 
-local function buildConfigs(page)
- panel(page,"Appearance",14,function(p)
-  toggle(p,"Rainbow UI","RainbowUI")
-  slider(p,"Rainbow Speed","RainbowSpeed",.03,.5)
-  label(p,"  Base accent: #7700ff",20,MUTED,10)
- end)
- panel(page,"Config",249,function(p)
-  button(p,"Save Default",function()
-   local m=Pengu.Get("ConfigManager.lua")
-   if m then local ok,e=m.Save();Pengu.Notify("CONFIG",ok and "Saved" or tostring(e),not ok)end
-  end)
-  button(p,"Load Default",function()
-   local m=Pengu.Get("ConfigManager.lua")
-   if m then local ok,e=m.Load();Pengu.Notify("CONFIG",ok and "Loaded" or tostring(e),not ok)end
-  end)
-  toggle(p,"Notifications","NotifEnabled")
-  toggle(p,"Skip Intro","SkipIntro")
- end)
- panel(page,"Info",484,function(p)
-  label(p,"Pengu "..tostring(Config.Version or "?"),24,TEXT,12,true)
-  label(p,"Right-click a module for settings.",20,MUTED,10)
-  label(p,"Right-click a category to collapse.",20,MUTED,10)
-  label(p,"Right Ctrl toggles the GUI.",20,MUTED,10)
- end)
+local function note(card, text)
+	return mk("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		Text = text,
+		Font = Enum.Font.Gotham,
+		TextSize = 11,
+		TextColor3 = MUTED,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextWrapped = true,
+		LayoutOrder = #card:GetChildren() + 1,
+	}, card)
 end
 
-local function makePage(parent,name,builder)
- local p=Instance.new("Frame")
- p.Name=name
- p.Size=UDim2.new(1,0,1,-52)
- p.Position=UDim2.new(0,0,0,52)
- p.BackgroundTransparency=1
- p.Visible=name==UI.ActiveTab
- p.Parent=parent
- builder(p)
- return p
+-- ---------- pages ----------
+local pages = {}
+
+local function clearPage(host)
+	for _, c in ipairs(host:GetChildren()) do
+		if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then
+			c:Destroy()
+		end
+	end
 end
 
-local function buildGUI()
- if UI.Gui then UI.Gui:Destroy()end
- UI.AccentBindings={}
- UI.Windows={}
+function pages.Combat(host)
+	local c1 = sectionCard(host, "Super Strength")
+	toggleRow(c1, "Super Strength", "SuperStrength")
+	sliderRow(c1, "Strength", "StrengthValue", 50, 800)
+	toggleRow(c1, "Fling Up", "FlingUp")
+	toggleRow(c1, "Slam", "Slam")
+	toggleRow(c1, "Void Fling", "VoidFling")
+	toggleRow(c1, "Spin Fling", "SpinFling")
+	note(c1, "RMB while holding a valid target. Sliders never move objects.")
 
- UI.Gui=Instance.new("ScreenGui")
- UI.Gui.Name="PenguUI"
- UI.Gui.ResetOnSpawn=false
- UI.Gui.IgnoreGuiInset=true
- UI.Gui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
- UI.Gui.Parent=CoreGui
+	local c2 = sectionCard(host, "Line / Reach")
+	toggleRow(c2, "Extend Line", "ExtendLine")
+	sliderRow(c2, "Extend Speed", "ExtendSpeed", 1, 20)
+	toggleRow(c2, "Grab Reach", "GrabReach")
+	sliderRow(c2, "Max Reach", "MaxGrabReach", 10, 80)
 
- local top=Instance.new("Frame")
- top.Size=UDim2.new(0,650,0,36)
- top.Position=UDim2.new(.5,-325,0,10)
- top.BackgroundColor3=BG
- top.BorderSizePixel=0
- top.Parent=UI.Gui
- corner(top,6)
- outline(top,Color3.fromRGB(48,45,57))
+	local c3 = sectionCard(host, "Auras")
+	toggleRow(c3, "Fling Aura", "FlingAura")
+	toggleRow(c3, "Ragdoll Aura", "RagdollAura")
+	toggleRow(c3, "Sit Aura", "SitAura")
+	toggleRow(c3, "Spin Aura", "SpinAura")
+	toggleRow(c3, "Bring Aura", "BringAura")
+	toggleRow(c3, "Void Aura", "VoidAura")
+	sliderRow(c3, "Aura Distance", "AuraRange", 5, 80)
+	toggleRow(c3, "Exclude Friends", "AuraIgnoreFriends")
+	toggleRow(c3, "Show Radius", "ShowAuraRadius")
 
- local topAccent=Instance.new("Frame")
- topAccent.Size=UDim2.new(1,0,0,2)
- topAccent.Position=UDim2.new(0,0,1,-2)
- topAccent.BorderSizePixel=0
- topAccent.Parent=top
- accentBind(topAccent,"BackgroundColor3")
-
- local brand=Instance.new("TextLabel")
- brand.Size=UDim2.new(0,112,1,0)
- brand.Position=UDim2.new(0,10,0,0)
- brand.BackgroundTransparency=1
- brand.Text="Pengu"
- brand.Font=Enum.Font.GothamBold
- brand.TextSize=15
- brand.TextXAlignment=Enum.TextXAlignment.Left
- brand.Parent=top
- accentBind(brand,"TextColor3")
-
- -- version hidden (internal Config.Version only)
- local version=Instance.new("TextLabel")
- version.Visible=false
- version.Size=UDim2.new(0,0,0,0)
- version.Parent=top
-
- local pages={}
- local tabButtons={}
- local tabs={
-  {"MODULES",buildModules,96},
-  {"TARGETS",buildTargets,90},
-  {"VISUALS",buildVisuals,90},
-  {"WHITELISTED",buildWhitelist,110},
-  {"CONFIGS",buildConfigs,90},
- }
- local x=132
- for _,t in ipairs(tabs)do
-  local name,builder,w=t[1],t[2],t[3]
-  local b=Instance.new("TextButton")
-  b.Size=UDim2.new(0,w,0,26)
-  b.Position=UDim2.new(0,x,0,5)
-  b.BackgroundColor3=name==UI.ActiveTab and Color3.fromRGB(27,24,34) or BG
-  b.BackgroundTransparency=name==UI.ActiveTab and 0 or 1
-  b.BorderSizePixel=0
-  b.Text=name
-  b.TextColor3=name==UI.ActiveTab and currentAccent() or MUTED
-  b.Font=Enum.Font.Gotham
-  b.TextSize=11
-  b.AutoButtonColor=false
-  b.Parent=top
-  corner(b,4)
-  tabButtons[name]=b
-  accentBind(b,"TextColor3",function()return UI.ActiveTab==name end,MUTED)
-
-  pages[name]=makePage(UI.Gui,name,builder)
-  bind(b.MouseButton1Click:Connect(function()
-   UI.ActiveTab=name
-   for n,p in pairs(pages)do p.Visible=n==name end
-   for n,btn in pairs(tabButtons)do
-    btn.BackgroundTransparency=n==name and 0 or 1
-    btn.BackgroundColor3=Color3.fromRGB(27,24,34)
-   end
-   refreshAccents()
-  end))
-  x+=w+4
- end
-
- bind(UIS.InputBegan:Connect(function(i,g)
-  if not g and Config and i.KeyCode==Config.MenuKey then
-   UI.Gui.Enabled=not UI.Gui.Enabled
-  end
- end))
-
- bind(RunService.RenderStepped:Connect(refreshAccents))
+	local c4 = sectionCard(host, "Grab Modes")
+	toggleRow(c4, "Toggle Grabs", "ToggleGrabs")
+	note(c4, "Modes apply with Super Strength throw path when enabled (Void/Spin/Fling/…).")
 end
 
-function UI.Init(pengu)
- Pengu=pengu
- Config=pengu.Get("config.lua")
- TargetManager=pengu.Get("TargetManager.lua")
- Combat=pengu.Get("combat.lua")
- Defense=pengu.Get("defense.lua")
- PlayerController=pengu.Get("PlayerController.lua")
- Config.Accent=PURPLE
- buildGUI()
- if Config.ThirdPerson and PlayerController then PlayerController.SetThirdPerson(true) end
+function pages.Defense(host)
+	local a = sectionCard(host, "Antis")
+	toggleRow(a, "Anti Grab", "AntiGrab")
+	toggleRow(a, "Gucci Anti-Grab", "AntiGrabGucci")
+	toggleRow(a, "Anti Gucci", "AntiGucci")
+	toggleRow(a, "Anti Blobman", "AntiBlobman")
+	toggleRow(a, "Anti Fling", "AntiFling")
+	toggleRow(a, "Anti Ragdoll", "AntiRagdoll")
+	toggleRow(a, "Instant Get Up", "InstantGetUp")
+	toggleRow(a, "Anti Sit", "AntiSit")
+	toggleRow(a, "Anti Void", "AntiVoid")
+	toggleRow(a, "Disable Void", "DisableVoid")
+	toggleRow(a, "Anti Lag", "AntiLag")
+	toggleRow(a, "Auto Anti-Lag", "AutoAntiLag")
+	toggleRow(a, "Anti Sticky", "AntiSticky")
+	toggleRow(a, "Anti Banana", "AntiBanana")
+	toggleRow(a, "Anti Paint", "AntiPaint")
+	toggleRow(a, "Anti Snowball", "AntiSnowball")
+	toggleRow(a, "Anti Poison", "AntiPoison")
+	toggleRow(a, "Anti Explosion", "AntiExplosion")
+	toggleRow(a, "Anti Burn", "AntiBurn")
+	toggleRow(a, "Anti Kick", "AntiKick")
+	toggleRow(a, "Anti Invis", "AntiInvis")
+	toggleRow(a, "Auto Reset", "AutoReset")
+	toggleRow(a, "Counter Attack", "CounterAttack")
+
+	local b = sectionCard(host, "Held Object")
+	toggleRow(b, "Noclip Barrier", "NoclipBarrier")
+	note(b, "Disables CanCollide on held movable target only. Restores on drop.")
+
+	local u = sectionCard(host, "Unsupported")
+	note(u, "Anti Network Ownership / Net Owner Spam / Break PCLD — not implemented.")
+end
+
+function pages.Player(host)
+	local v = sectionCard(host, "Values")
+	toggleRow(v, "Walk Speed", "SpeedEnabled")
+	sliderRow(v, "Walk Speed", "WalkSpeed", 16, 200)
+	toggleRow(v, "Jump Boost", "JumpEnabled")
+	sliderRow(v, "Jump Power", "JumpPower", 50, 200)
+	toggleRow(v, "Flight", "Flight")
+	sliderRow(v, "Flight Speed", "FlightSpeed", 10, 200)
+	toggleRow(v, "Character Spin", "CharSpin")
+	sliderRow(v, "Spin Speed", "SpinSpeed", 1, 40)
+	toggleRow(v, "Noclip", "Noclip")
+	toggleRow(v, "Infinite Jump", "InfJump")
+
+	local c = sectionCard(host, "Camera")
+	toggleRow(c, "Third Person", "ThirdPerson")
+	sliderRow(c, "Max Wheel Zoom", "TPMaxZoom", 4, 64)
+	sliderRow(c, "FOV", "FOV", 50, 120)
+	note(c, "Third Person uses Roblox native scroll-wheel camera.")
+end
+
+function pages.Target(host)
+	local t = sectionCard(host, "Targeting")
+	toggleRow(t, "Nearest Target", "NearestTarget")
+	toggleRow(t, "Target Lock", "TargetLock")
+	sliderRow(t, "Distance Limit", "DistLimit", 50, 500)
+	buttonRow(t, "Select Nearest", function()
+		if TargetManager and TargetManager.SelectNearest then TargetManager.SelectNearest() end
+	end)
+	buttonRow(t, "Clear Target", function()
+		if TargetManager and TargetManager.Clear then TargetManager.Clear() end
+	end)
+
+	local b = sectionCard(host, "Blobman")
+	toggleRow(b, "Blob Loop", "BlobLoop")
+	toggleRow(b, "Blob Grab All", "BlobGrabAll")
+	toggleRow(b, "Auto Sit Blobman", "BlobAutoSit")
+	toggleRow(b, "Freeze Blobman", "BlobFreeze")
+	note(b, "Net Owner Spam: unsupported")
+end
+
+function pages.Visuals(host)
+	local e = sectionCard(host, "Player ESP")
+	toggleRow(e, "Player ESP", "PlayerESP")
+	toggleRow(e, "Distance ESP", "DistESP")
+	toggleRow(e, "Health ESP", "HealthESP")
+	toggleRow(e, "Target ESP", "TargetESP")
+	toggleRow(e, "Rainbow ESP", "Rainbow")
+	sliderRow(e, "ESP Distance", "ESPMaxDist", 50, 800)
+
+	local w = sectionCard(host, "World")
+	toggleRow(w, "Fullbright", "Fullbright")
+	toggleRow(w, "No Fog", "NoFog")
+	toggleRow(w, "No Shadows", "NoShadows")
+	toggleRow(w, "Custom Time", "CustomTime")
+	sliderRow(w, "Clock Time", "ClockTime", 0, 24)
+end
+
+function pages.World(host)
+	local m = sectionCard(host, "World / Misc")
+	buttonRow(m, "Respawn", function()
+		pcall(function()
+			local ch = LP.Character
+			if ch then local h = ch:FindFirstChildOfClass("Humanoid"); if h then h.Health = 0 end end
+		end)
+	end)
+	buttonRow(m, "Rejoin Server", function()
+		pcall(function() TeleportService:Teleport(game.PlaceId, LP) end)
+	end)
+	toggleRow(m, "Fullbright", "Fullbright")
+	toggleRow(m, "No Fog", "NoFog")
+	toggleRow(m, "No Shadows", "NoShadows")
+	toggleRow(m, "Custom Time", "CustomTime")
+	sliderRow(m, "Clock Time", "ClockTime", 0, 24)
+	toggleRow(m, "Noclip Barrier", "NoclipBarrier")
+	toggleRow(m, "Anti Invis", "AntiInvis")
+end
+
+function pages.Lists(host)
+	local w = sectionCard(host, "Whitelist")
+	toggleRow(w, "Whitelist Enabled", "WhitelistEnabled")
+	toggleRow(w, "Auto Whitelist Friends", "AutoWLFriends")
+	note(w, "Whitelisted players are ignored by targeting/combat where supported.")
+end
+
+function pages.Settings(host)
+	local a = sectionCard(host, "Appearance")
+	sliderRow(a, "UI Transparency", "UITransparency", 0, 0.75, function()
+		-- live refresh cards if needed later
+	end)
+	note(a, "BackgroundImage: set Config.BackgroundImage to rbxassetid:// or leave empty.")
+	toggleRow(a, "Rainbow UI", "RainbowUI")
+	sliderRow(a, "Rainbow Speed", "RainbowSpeed", 0.1, 2)
+
+	local c = sectionCard(host, "Config")
+	toggleRow(c, "Notifications", "NotifEnabled")
+	buttonRow(c, "Save Default", function()
+		if Pengu and Pengu.Get then
+			local cm = Pengu.Get("ConfigManager.lua")
+			if cm and cm.Save then cm.Save() end
+		end
+		notify("Config saved")
+	end)
+	buttonRow(c, "Load Default", function()
+		if Pengu and Pengu.Get then
+			local cm = Pengu.Get("ConfigManager.lua")
+			if cm and cm.Load then cm.Load() end
+		end
+		notify("Config loaded")
+	end)
+
+	local i = sectionCard(host, "Info")
+	note(i, "Pengu " .. ((Config and Config.Version) or "0.5.0"))
+	note(i, "RightCtrl toggles GUI. Super Strength = RMB while holding.")
+end
+
+local PAGE_ORDER = {
+	{id = "Combat", icon = "⚔"},
+	{id = "Defense", icon = "🛡"},
+	{id = "Player", icon = "👤"},
+	{id = "Target", icon = "◎"},
+	{id = "Visuals", icon = "👁"},
+	{id = "World", icon = "🌐"},
+	{id = "Lists", icon = "☰"},
+	{id = "Settings", icon = "⚙"},
+}
+
+local function showPage(id, content, sideButtons)
+	UI.ActivePage = id
+	clearPage(content)
+	local builder = pages[id]
+	if builder then
+		builder(content)
+	end
+	for name, btn in pairs(sideButtons) do
+		if name == id then
+			btn.BackgroundColor3 = accent()
+			btn.TextColor3 = Color3.new(1, 1, 1)
+		else
+			btn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+			btn.BackgroundTransparency = 1
+			btn.TextColor3 = MUTED
+		end
+	end
+end
+
+function UI.Init(ctx)
+	Pengu = ctx
+	Config = ctx.Get("config.lua")
+	TargetManager = ctx.Get("TargetManager.lua")
+	Combat = ctx.Get("combat.lua")
+	Defense = ctx.Get("defense.lua")
+	PlayerController = ctx.Get("PlayerController.lua")
+
+	for _, n in ipairs({"PenguUI", "PenguIntro"}) do
+		local old = CoreGui:FindFirstChild(n)
+		if old then old:Destroy() end
+	end
+
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "PenguUI"
+	gui.ResetOnSpawn = false
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.IgnoreGuiInset = true
+	pcall(function() gui.Parent = CoreGui end)
+	if not gui.Parent then gui.Parent = LP:WaitForChild("PlayerGui") end
+	UI.Gui = gui
+
+	local root = mk("Frame", {
+		Name = "Root",
+		Size = UDim2.new(0, 720, 0, 460),
+		Position = UDim2.new(0.5, -360, 0.5, -230),
+		BackgroundColor3 = BG,
+		BackgroundTransparency = panelT(),
+		BorderSizePixel = 0,
+		Active = true,
+	}, gui)
+	corner(root, 12)
+	stroke(root, 1)
+
+	-- optional background image
+	local bgImg = mk("ImageLabel", {
+		Name = "CustomBG",
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundTransparency = 1,
+		ImageTransparency = 0.55,
+		ScaleType = Enum.ScaleType.Crop,
+		ZIndex = 0,
+	}, root)
+	corner(bgImg, 12)
+	local function refreshBG()
+		local id = Config and Config.BackgroundImage or ""
+		if type(id) == "string" and #id > 0 then
+			bgImg.Image = id
+			bgImg.Visible = true
+		else
+			bgImg.Visible = false
+		end
+		root.BackgroundTransparency = panelT()
+	end
+	refreshBG()
+
+	-- top bar
+	local top = mk("Frame", {
+		Size = UDim2.new(1, 0, 0, 44),
+		BackgroundColor3 = SIDE,
+		BackgroundTransparency = panelT() * 0.5,
+		BorderSizePixel = 0,
+		ZIndex = 2,
+	}, root)
+	mk("UICorner", {CornerRadius = UDim.new(0, 12)}, top)
+	local brand = mk("TextLabel", {
+		Size = UDim2.new(0, 100, 1, 0),
+		Position = UDim2.new(0, 14, 0, 0),
+		BackgroundTransparency = 1,
+		Text = "Pengu",
+		Font = Enum.Font.GothamBold,
+		TextSize = 18,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 3,
+	}, top)
+	bindAccent(brand, "TextColor3")
+
+	local search = mk("TextBox", {
+		Size = UDim2.new(0, 180, 0, 28),
+		Position = UDim2.new(1, -200, 0.5, -14),
+		BackgroundColor3 = CARD,
+		BackgroundTransparency = panelT(),
+		PlaceholderText = "Search",
+		Text = "",
+		Font = Enum.Font.Gotham,
+		TextSize = 12,
+		TextColor3 = TEXT,
+		PlaceholderColor3 = MUTED,
+		ClearTextOnFocus = false,
+		ZIndex = 3,
+	}, top)
+	corner(search, 6)
+	stroke(search, 1)
+	pad(search, 8, 0, 8, 0)
+
+	-- sidebar
+	local side = mk("Frame", {
+		Size = UDim2.new(0, 140, 1, -44),
+		Position = UDim2.new(0, 0, 0, 44),
+		BackgroundColor3 = SIDE,
+		BackgroundTransparency = panelT() * 0.35,
+		BorderSizePixel = 0,
+		ZIndex = 2,
+	}, root)
+
+	local sideList = mk("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 4),
+	}, side)
+	pad(side, 8, 10, 8, 10)
+
+	-- content scroll
+	local content = mk("ScrollingFrame", {
+		Size = UDim2.new(1, -150, 1, -54),
+		Position = UDim2.new(0, 146, 0, 50),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 4,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ZIndex = 2,
+	}, root)
+	local cl = mk("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 10),
+	}, content)
+	pad(content, 6, 4, 10, 12)
+
+	-- two-column helper: single column list of cards is fine for density
+	local sideButtons = {}
+	for i, p in ipairs(PAGE_ORDER) do
+		local b = mk("TextButton", {
+			Size = UDim2.new(1, 0, 0, 32),
+			BackgroundTransparency = 1,
+			Text = "  " .. p.id,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 13,
+			TextColor3 = MUTED,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			BorderSizePixel = 0,
+			LayoutOrder = i,
+			AutoButtonColor = false,
+			ZIndex = 3,
+		}, side)
+		corner(b, 6)
+		sideButtons[p.id] = b
+		b.MouseButton1Click:Connect(function()
+			showPage(p.id, content, sideButtons)
+		end)
+	end
+
+	showPage("Combat", content, sideButtons)
+
+	-- drag
+	local dragging, dragStart, startPos
+	top.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = true
+			dragStart = input.Position
+			startPos = root.Position
+		end
+	end)
+	table.insert(UI.Connections, UIS.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+	end))
+	table.insert(UI.Connections, UIS.InputChanged:Connect(function(input)
+		if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+			local d = input.Position - dragStart
+			root.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+		end
+	end))
+
+	-- toggle key
+	table.insert(UI.Connections, UIS.InputBegan:Connect(function(input, gp)
+		if gp then return end
+		local key = (Config and Config.MenuKey) or Enum.KeyCode.RightControl
+		if input.KeyCode == key then
+			root.Visible = not root.Visible
+		end
+	end))
+
+	-- rainbow accent
+	table.insert(UI.Connections, RunService.RenderStepped:Connect(function()
+		if Config and Config.RainbowUI then
+			local h = (tick() * (Config.RainbowSpeed or 0.5)) % 1
+			Config.Accent = Color3.fromHSV(h, 0.75, 1)
+			applyAccent()
+		end
+	end))
+
+	-- search filters card titles (simple hide)
+	search:GetPropertyChangedSignal("Text"):Connect(function()
+		local q = string.lower(search.Text or "")
+		for _, child in ipairs(content:GetChildren()) do
+			if child:IsA("Frame") then
+				local head = child:FindFirstChildWhichIsA("TextLabel")
+				if head then
+					child.Visible = q == "" or string.find(string.lower(head.Text), q, 1, true) ~= nil
+				end
+			end
+		end
+	end)
+
+	notify("Pengu ready")
 end
 
 function UI.Destroy()
- for _,c in ipairs(UI.Connections)do pcall(function()c:Disconnect()end)end
- UI.Connections={}
- UI.AccentBindings={}
- if UI.Gui then UI.Gui:Destroy();UI.Gui=nil end
+	for _, c in ipairs(UI.Connections) do
+		pcall(function() c:Disconnect() end)
+	end
+	UI.Connections = {}
+	if UI.Gui then UI.Gui:Destroy() UI.Gui = nil end
 end
 
 return UI
