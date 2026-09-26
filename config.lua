@@ -2,7 +2,16 @@
 local Config = {}
 
 Config.Name = "Pengu"
-Config.Version = "0.4.0"
+Config.Version = "0.5.0"
+
+-- UI chrome
+Config.UITransparency = 0.08 -- 0..0.75 panel bg transparency
+Config.BackgroundImage = "" -- rbxassetid:// or https image url (empty = solid)
+Config.RainbowUI = false
+Config.RainbowSpeed = 0.5
+Config.MenuKey = Enum.KeyCode.RightControl
+Config.NotifEnabled = true
+Config.Accent = Color3.fromRGB(119, 0, 255)
 
 -- Player
 Config.SpeedEnabled = false
@@ -16,7 +25,7 @@ Config.SpinSpeed = 12
 Config.Noclip = false
 Config.InfJump = false
 
--- Super Strength / Line (config only until RMB)
+-- Super Strength / Line
 Config.SuperStrength = false
 Config.StrengthValue = 400
 Config.ThrowMult = 3.5
@@ -28,9 +37,7 @@ Config.GrabReach = false
 Config.MaxGrabReach = 30
 Config.ExtendLine = false
 Config.ExtendSpeed = 1
-
--- Grab modes (applied with grab pipeline / RMB where relevant)
-Config.GrabMode = "None" -- None|Invisible|Kill|Void|Kick|Spin|Fling|TeleportSpawn|Unstick
+Config.GrabMode = "None"
 Config.ToggleGrabs = false
 
 -- Auras
@@ -87,12 +94,11 @@ Config.AutoReset = false
 Config.NoclipBarrier = false
 Config.CounterAttack = false
 Config.CounterMode = "Fling"
--- UNSUPPORTED
 Config.AntiNetworkOwnership = false
 Config.NetOwnerSpam = false
 Config.BreakPCLD = false
 
--- Camera (native third person via PlayerController)
+-- Camera
 Config.ThirdPerson = false
 Config.TPDistance = 8
 Config.TPMinZoom = 0.5
@@ -117,12 +123,5 @@ Config.ClockTime = 14
 -- Lists
 Config.WhitelistEnabled = true
 Config.AutoWLFriends = true
-
--- UI
-Config.RainbowUI = false
-Config.MenuKey = Enum.KeyCode.RightControl
-Config.SkipIntro = false
-Config.NotifEnabled = true
-Config.Accent = Color3.fromRGB(119, 0, 255)
 
 return Config
