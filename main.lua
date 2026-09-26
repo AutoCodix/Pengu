@@ -1,11 +1,11 @@
 --[[
     PENGU // FTAP HVH
     Bootstrap loader — entry point
-    Raw: https://raw.githubusercontent.com/AutoCodix/Pengu-FTAP/main/main.lua
+    Raw: https://raw.githubusercontent.com/AutoCodix/Pengu/main/main.lua
 ]]
 
 local VERSION = "0.3.0"
-local BASE = "https://raw.githubusercontent.com/AutoCodix/Pengu-FTAP/main/"
+local BASE = "https://raw.githubusercontent.com/AutoCodix/Pengu/main/"
 local CACHE_BUST = true
 
 if shared.Pengu and type(shared.Pengu.Destroy) == "function" then
